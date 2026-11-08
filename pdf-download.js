@@ -35,9 +35,9 @@
     const original=document.querySelector('#printarea .paper');
     if(!original)return alert('PDF-Inhalt nicht gefunden.');
     const stage=document.createElement('div');stage.className='lg-pdf-stage';
-    stage.style.cssText='position:fixed;left:-10000px;top:0;width:794px;z-index:-1;background:#fff;';
+    stage.style.cssText='position:fixed;left:-10000px;top:0;width:790px;z-index:-1;background:#fff;';
     const paper=original.cloneNode(true);
-    paper.style.cssText='box-sizing:border-box;position:relative;width:210mm;min-height:0;height:auto;padding:34mm 55mm 18mm 19mm;background:white;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:9.2pt;line-height:1.28;';
+    paper.style.cssText='box-sizing:border-box;position:relative;width:790px;min-height:0;height:auto;padding:34mm 55mm 18mm 19mm;background:white;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:9.2pt;line-height:1.28;';
     const service=getService(d);
     let serviceNode=paper.querySelector('.service');
     if(service){
@@ -47,7 +47,7 @@
     }
     const logo=paper.querySelector('.doc-logo');
     if(logo){logo.src=new URL('logo.png',document.baseURI).href;logo.style.cssText='position:absolute;right:12mm;top:12mm;width:57mm;height:17mm;object-fit:contain;display:block;';}
-    const side=paper.querySelector('.company-side');const sideText=side?.innerText||'';if(side)side.remove();const oldNumber=paper.querySelector('.page-number');if(oldNumber)oldNumber.remove();;
+    const side=paper.querySelector('.company-side');const sideText=side?.innerText||'';if(side)side.remove();paper.querySelectorAll('.page-number, .paper-footer .page-number').forEach(el=>el.remove());
     const sender=paper.querySelector('.sender');if(sender)sender.style.cssText='font-size:5.8pt;font-style:italic;margin-bottom:3mm;';
     const recipient=paper.querySelector('.recipient');if(recipient)recipient.style.cssText='white-space:pre-line;min-height:31mm;line-height:1.7;';
     const title=paper.querySelector('.doc-title');if(title)title.style.cssText='font-weight:800;font-style:italic;font-size:10pt;line-height:1.7;';
@@ -59,13 +59,29 @@
     const totals=paper.querySelector('.totals');if(totals)totals.style.cssText='margin:10mm 0 0 23%;border-top:1px solid #999;padding-top:4mm;font-size:8.5pt;';
     paper.querySelectorAll('.totals > div').forEach(e=>e.style.cssText+=';display:flex;justify-content:space-between;gap:10px;padding:2mm 0;');
     paper.querySelectorAll('.document-notes').forEach(e=>e.style.cssText+=';margin-top:13mm;font-size:9pt;line-height:1.5;');
+    // Prevent print-only rules from creating an artificial full-height page.
+    paper.style.setProperty('min-height','0','important');
+    paper.style.setProperty('height','auto','important');
+    paper.querySelectorAll('.page-number').forEach(el=>el.remove());
     stage.appendChild(paper);document.body.appendChild(stage);
     try{
       if(logo){await new Promise(resolve=>{if(logo.complete)return resolve();logo.onload=resolve;logo.onerror=resolve;setTimeout(resolve,5000);});if(!logo.naturalWidth)throw Error('Logo konnte nicht geladen werden. Bitte logo.png im GitHub-Hauptverzeichnis prüfen.');}
+      // html2pdf may add a second page when a CSS break or subpixel rounding
+      // pushes a short document just beyond A4. Fit short content inside
+      // the actual page canvas without scaling genuinely multi-page documents.
+      const mmToPx=96/25.4;
+      const maxOnePageHeight=296*mmToPx;
+      const actualHeight=paper.scrollHeight;
+      if(actualHeight>maxOnePageHeight && actualHeight<maxOnePageHeight*1.18){
+        const factor=(maxOnePageHeight-8)/actualHeight;
+        paper.style.transform='scale('+factor+')';
+        paper.style.transformOrigin='top left';
+        stage.style.height=(actualHeight*factor)+'px';
+      }
       const filename=String(d.number||'Dokument').replace(/[^a-zA-Z0-9_.-]/g,'_')+'.pdf';
       // Generate PDF first, then draw page furniture at fixed physical A4 coordinates.
       // This prevents page numbers and the company sidebar from moving up on short documents.
-      const worker=html2pdf().set({margin:0,filename,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],avoid:['.totals','.document-notes','tr']}}).from(paper).toPdf();
+      const worker=html2pdf().set({margin:0,filename,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['legacy'],avoid:['tr']}}).from(paper).toPdf();
       const pdf=await worker.get('pdf');
       const pageCount=pdf.internal.getNumberOfPages();
       const sidebarLines=sideText.split('\n').map(x=>x.trim());
@@ -73,7 +89,7 @@
         pdf.setPage(page);
         // Page number is always 10 mm from the bottom edge.
         pdf.setFont('helvetica','normal');pdf.setFontSize(7);pdf.setTextColor(85,85,85);
-        pdf.text('Seite '+page+(pageCount>1?' / '+pageCount:''),105,287,{align:'center'});
+        pdf.text('Seite '+page+' / '+pageCount,105,287,{align:'center'});
         // Company information is pinned to the right-hand column on every page.
         if(sidebarLines.length){
           pdf.setFontSize(6.3);pdf.setTextColor(115,115,115);
