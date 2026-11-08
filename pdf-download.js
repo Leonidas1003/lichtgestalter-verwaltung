@@ -37,7 +37,7 @@
     const stage=document.createElement('div');stage.className='lg-pdf-stage';
     stage.style.cssText='position:fixed;left:-10000px;top:0;width:794px;z-index:-1;background:#fff;';
     const paper=original.cloneNode(true);
-    paper.style.cssText='box-sizing:border-box;position:relative;width:210mm;min-height:297mm;padding:34mm 55mm 26mm 19mm;background:white;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:9.2pt;line-height:1.28;';
+    paper.style.cssText='box-sizing:border-box;position:relative;width:210mm;min-height:0;height:auto;padding:34mm 55mm 18mm 19mm;background:white;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:9.2pt;line-height:1.28;';
     const service=getService(d);
     let serviceNode=paper.querySelector('.service');
     if(service){
@@ -47,7 +47,7 @@
     }
     const logo=paper.querySelector('.doc-logo');
     if(logo){logo.src=new URL('logo.png',document.baseURI).href;logo.style.cssText='position:absolute;right:12mm;top:12mm;width:57mm;height:17mm;object-fit:contain;display:block;';}
-    const side=paper.querySelector('.company-side');if(side)side.style.cssText='position:absolute;right:8mm;bottom:19mm;width:39mm;text-align:right;font-size:6.3pt;line-height:1.65;color:#777;';
+    const side=paper.querySelector('.company-side');const sideText=side?.innerText||'';if(side)side.remove();const oldNumber=paper.querySelector('.page-number');if(oldNumber)oldNumber.remove();;
     const sender=paper.querySelector('.sender');if(sender)sender.style.cssText='font-size:5.8pt;font-style:italic;margin-bottom:3mm;';
     const recipient=paper.querySelector('.recipient');if(recipient)recipient.style.cssText='white-space:pre-line;min-height:31mm;line-height:1.7;';
     const title=paper.querySelector('.doc-title');if(title)title.style.cssText='font-weight:800;font-style:italic;font-size:10pt;line-height:1.7;';
@@ -63,7 +63,26 @@
     try{
       if(logo){await new Promise(resolve=>{if(logo.complete)return resolve();logo.onload=resolve;logo.onerror=resolve;setTimeout(resolve,5000);});if(!logo.naturalWidth)throw Error('Logo konnte nicht geladen werden. Bitte logo.png im GitHub-Hauptverzeichnis prüfen.');}
       const filename=String(d.number||'Dokument').replace(/[^a-zA-Z0-9_.-]/g,'_')+'.pdf';
-      await html2pdf().set({margin:0,filename,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(paper).save();
+      // Generate PDF first, then draw page furniture at fixed physical A4 coordinates.
+      // This prevents page numbers and the company sidebar from moving up on short documents.
+      const worker=html2pdf().set({margin:0,filename,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],avoid:['.totals','.document-notes','tr']}}).from(paper).toPdf();
+      const pdf=await worker.get('pdf');
+      const pageCount=pdf.internal.getNumberOfPages();
+      const sidebarLines=sideText.split('\n').map(x=>x.trim());
+      for(let page=1;page<=pageCount;page++){
+        pdf.setPage(page);
+        // Page number is always 10 mm from the bottom edge.
+        pdf.setFont('helvetica','normal');pdf.setFontSize(7);pdf.setTextColor(85,85,85);
+        pdf.text('Seite '+page+(pageCount>1?' / '+pageCount:''),105,287,{align:'center'});
+        // Company information is pinned to the right-hand column on every page.
+        if(sidebarLines.length){
+          pdf.setFontSize(6.3);pdf.setTextColor(115,115,115);
+          const lineHeight=3.2;
+          const startY=Math.max(35,278-sidebarLines.length*lineHeight);
+          sidebarLines.forEach((line,i)=>{if(line)pdf.text(line,202,startY+i*lineHeight,{align:'right'});});
+        }
+      }
+      await worker.save();
     }catch(e){alert('PDF-Download fehlgeschlagen: '+e.message);}finally{stage.remove();}
   };
   updateButtons();
