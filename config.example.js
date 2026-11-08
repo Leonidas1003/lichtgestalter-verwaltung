@@ -1,0 +1,2 @@
+CLOUD_CONFIG.url='https://YOUR-PROJECT.supabase.co';
+CLOUD_CONFIG.anonKey='YOUR_PUBLIC_ANON_KEY';
