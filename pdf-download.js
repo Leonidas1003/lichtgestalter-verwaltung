@@ -38,6 +38,29 @@
     stage.style.cssText='position:fixed;left:-10000px;top:0;width:790px;z-index:-1;background:#fff;';
     const paper=original.cloneNode(true);
     paper.style.cssText='box-sizing:border-box;position:relative;width:790px;min-height:0;height:auto;padding:34mm 55mm 18mm 19mm;background:white;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:9.2pt;line-height:1.28;';
+    // Document-specific notes: delivery notes contain no payment terms;
+    // invoices provide clear remittance instructions directly above both bank accounts.
+    const notes=paper.querySelector('.document-notes:last-of-type') || [...paper.querySelectorAll('.document-notes')].at(-1);
+    if(notes){
+      if(d.type==='D'){
+        notes.innerHTML=notes.innerHTML.replace(/Zahlungsbedingung\s*:[^<]*(?=<|$)/gi,'');
+      }
+      if(d.type==='I'){
+        const bankInstruction=document.createElement('p');
+        bankInstruction.textContent='Bitte überweisen Sie den Rechnungsbetrag unter Angabe der Rechnungsnummer auf eines der folgenden Konten:';
+        bankInstruction.style.cssText='margin:5mm 0 2mm;font-size:8.5pt;line-height:1.4;';
+        const text=notes.textContent||'';
+        const ibanAt=text.indexOf('FYRST');
+        if(ibanAt>=0){
+          const html=notes.innerHTML;
+          const pos=html.indexOf('FYRST');
+          if(pos>=0)notes.innerHTML=html.slice(0,pos)+bankInstruction.outerHTML+html.slice(pos);
+        } else {
+          const bank=Array.from(notes.querySelectorAll('p,div')).find(x=>/IBAN/.test(x.textContent||''));
+          if(bank)bank.before(bankInstruction);else notes.appendChild(bankInstruction);
+        }
+      }
+    }
     const service=getService(d);
     let serviceNode=paper.querySelector('.service');
     if(service){
@@ -47,7 +70,13 @@
     }
     const logo=paper.querySelector('.doc-logo');
     if(logo){logo.src=new URL('logo.png',document.baseURI).href;logo.style.cssText='position:absolute;right:12mm;top:12mm;width:57mm;height:17mm;object-fit:contain;display:block;';}
-    const side=paper.querySelector('.company-side');const sideText=side?.innerText||'';if(side)side.remove();paper.querySelectorAll('.page-number, .paper-footer .page-number').forEach(el=>el.remove());
+    const side=paper.querySelector('.company-side');
+    // Hidden print area has unreliable innerText in Safari; preserve explicit <br> lines.
+    const sideLines=side ? side.innerHTML.split(/<br\s*\/?\s*>/i).map(fragment=>{
+      const temp=document.createElement('div');temp.innerHTML=fragment;
+      return (temp.textContent||'').trim();
+    }) : [];
+    if(side)side.remove();paper.querySelectorAll('.page-number, .paper-footer .page-number').forEach(el=>el.remove());
     const sender=paper.querySelector('.sender');if(sender)sender.style.cssText='font-size:5.8pt;font-style:italic;margin-bottom:3mm;';
     const recipient=paper.querySelector('.recipient');if(recipient)recipient.style.cssText='white-space:pre-line;min-height:31mm;line-height:1.7;';
     const title=paper.querySelector('.doc-title');if(title)title.style.cssText='font-weight:800;font-style:italic;font-size:10pt;line-height:1.7;';
@@ -61,7 +90,7 @@
     paper.querySelectorAll('.document-notes').forEach(e=>e.style.cssText+=';margin-top:13mm;font-size:9pt;line-height:1.5;');
     // Prevent print-only rules from creating an artificial full-height page.
     paper.style.setProperty('min-height','0','important');
-    paper.style.setProperty('height','auto','important');
+    paper.style.setProperty('height','auto','important');paper.style.setProperty('break-after','auto','important');paper.style.setProperty('page-break-after','auto','important');
     paper.querySelectorAll('.page-number').forEach(el=>el.remove());
     stage.appendChild(paper);document.body.appendChild(stage);
     try{
@@ -84,7 +113,7 @@
       const worker=html2pdf().set({margin:0,filename,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['legacy'],avoid:['tr']}}).from(paper).toPdf();
       const pdf=await worker.get('pdf');
       const pageCount=pdf.internal.getNumberOfPages();
-      const sidebarLines=sideText.split('\n').map(x=>x.trim());
+      const sidebarLines=sideLines;
       for(let page=1;page<=pageCount;page++){
         pdf.setPage(page);
         // Page number is always 10 mm from the bottom edge.
@@ -94,8 +123,16 @@
         if(sidebarLines.length){
           pdf.setFontSize(6.3);pdf.setTextColor(115,115,115);
           const lineHeight=3.2;
-          const startY=Math.max(35,278-sidebarLines.length*lineHeight);
-          sidebarLines.forEach((line,i)=>{if(line)pdf.text(line,202,startY+i*lineHeight,{align:'right'});});
+          const startY=Math.max(45,278-sidebarLines.length*lineHeight);
+          sidebarLines.forEach((line,i)=>{
+            if(!line)return;
+            // Right aligned within the dedicated 39 mm company column.
+            const maxWidth=38;
+            const chunks=pdf.splitTextToSize(line,maxWidth);
+            chunks.forEach((part,j)=>{
+              pdf.text(part,201,startY+i*lineHeight+j*2.5,{align:'right'});
+            });
+          });
         }
       }
       await worker.save();
