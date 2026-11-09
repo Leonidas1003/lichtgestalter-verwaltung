@@ -87,7 +87,7 @@
     paper.querySelectorAll('.document-table td').forEach(e=>e.style.cssText='vertical-align:top;padding:10px 3px;border:0;overflow-wrap:anywhere;');
     const totals=paper.querySelector('.totals');if(totals)totals.style.cssText='margin:10mm 0 0 23%;border-top:1px solid #999;padding-top:4mm;font-size:8.5pt;';
     paper.querySelectorAll('.totals > div').forEach(e=>e.style.cssText+=';display:flex;justify-content:space-between;gap:10px;padding:2mm 0;');
-    paper.querySelectorAll('.document-notes').forEach(e=>e.style.cssText+=';margin-top:13mm;font-size:9pt;line-height:1.5;');
+    paper.querySelectorAll('.document-notes').forEach(e=>{e.style.fontSize='9pt';e.style.lineHeight='1.5';if(!e.style.marginTop)e.style.marginTop='8mm';});
     // Prevent print-only rules from creating an artificial full-height page.
     paper.style.setProperty('min-height','0','important');
     paper.style.setProperty('height','auto','important');paper.style.setProperty('break-after','auto','important');paper.style.setProperty('page-break-after','auto','important');
